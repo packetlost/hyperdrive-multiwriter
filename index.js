@@ -282,6 +282,7 @@ Drive.prototype.unreplicate = function (stream) {
   }
 }
 Drive.prototype.close = function (cb) {
+  if (!cb) cb = noop
   var self = this
   var keys = Object.keys(self._archives)
   var pending = keys.length
@@ -300,3 +301,4 @@ function ishex (str) {
 function linkfor (x) {
   return typeof x === 'string' ? x : x.toString('hex')
 }
+function noop () {}
