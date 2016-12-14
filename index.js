@@ -10,6 +10,7 @@ var pump = require('pump')
 var pumpify = require('pumpify')
 var multiplex = require('multiplex')
 var once = require('once')
+var extend = require('xtend')
 
 inherits(Drive, EventEmitter)
 module.exports = Drive
@@ -118,7 +119,12 @@ Drive.prototype.createFileReadStream = function (entry) {
   this._getArchives(function (archive, archives) {
     if (!archives[entry.link]) {
       d.emit('error', new Error('archive not found with link: ' + entry.link))
-    } else d.setReadable(archives[entry.link].createFileReadStream(entry))
+    } else {
+      var e = extend(entry)
+      delete e.blocks
+      delete e.content
+      d.setReadable(archives[entry.link].createFileReadStream(e))
+    }
   })
   return d
 }

@@ -12,6 +12,7 @@
     "readable-stream": "^2.2.2",
     "split2": "^2.1.0",
     "symmetric-protocol-group": "^1.1.0",
-    "through2": "^2.0.3"
+    "through2": "^2.0.3",
+    "xtend": "^4.0.1"
   }
 }
