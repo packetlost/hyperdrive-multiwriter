@@ -1,7 +1,7 @@
 {
   "name": "hyperdrive-multiwriter",
   "description": "present a bundle of hyperdrive archives together as a multi-writer view",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "main": "index.js",
   "dependencies": {
     "collect-stream": "^1.2.1",
