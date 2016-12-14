@@ -82,6 +82,8 @@ Create a multi-writer hyperdrive instance `mdrive` from `opts`:
 
 `mdrive` has most of the same methods as a hyperdrive archive instance.
 
+The rest of the `opts` are passed through to `drive.createArchive(opts)`.
+
 ## var r = mdrive.list(opts, cb)
 
 Return a readable stream `r` with entries from all the archives or collect all

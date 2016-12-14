@@ -24,6 +24,7 @@ function Drive (opts) {
   self._drive = opts.drive
   self._archives = {}
   self._archive = null
+  self._options = opts
   self.key = null
   self._ready = false
   self._replicating = []
@@ -33,12 +34,14 @@ function Drive (opts) {
     if (!links) links = { self: null, links: [] }
     if (links.self) {
       self.key = Buffer(links.self, 'hex')
-      self._archive = self._drive.createArchive(self.key, { live: true })
+      self._archive = self._drive.createArchive(
+        self.key, extend(self._options, { live: true }))
       self._archives[links.self] = self._archive
       self.emit('archive', self._archive, links.self)
       ready(links)
     } else {
-      self._archive = self._drive.createArchive(null, { live: true })
+      self._archive = self._drive.createArchive(
+        null, extend(self._options, { live: true }))
       var key = self._archive.key.toString('hex')
       self.key = self._archive.key
       self._archives[key] = self._archive
@@ -56,7 +59,7 @@ function Drive (opts) {
     lns.forEach(function (link) {
       if (!self._archives[link]) {
         self._archives[link] = self._drive.createArchive(
-          Buffer(link,'hex'), { live: true })
+          Buffer(link,'hex'), extend(self._options, { live: true }))
         self.emit('archive', self._archives[link], link)
       }
       addListeners(self._archives[link], link)
@@ -248,7 +251,7 @@ Drive.prototype.replicate = function (opts) {
         links.links.forEach(function (link) {
           if (!self._archives[link]) {
             self._archives[link] = self._drive.createArchive(
-              Buffer(link,'hex'), { live: true })
+              Buffer(link,'hex'), extend(self._options, { live: true }))
             self.emit('archive', self._archives[link], link)
           }
           if (d._streams[link]) return
