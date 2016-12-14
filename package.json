@@ -8,6 +8,7 @@
     "merge-stream": "^1.0.1",
     "pumpify": "^1.3.5",
     "readable-stream": "^2.2.2",
+    "symmetric-protocol-group": "^1.1.0",
     "through2": "^2.0.3"
   }
 }

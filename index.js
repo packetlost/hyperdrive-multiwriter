@@ -43,9 +43,18 @@ function Drive (opts) {
       if (!self._archives[link]) {
         self._archives[link] = self._drive.createArchive(Buffer(link,'hex'))
       }
+      addListeners(self._archives[link], link)
     })
     self._ready = true
     self.emit('_ready', self._archive, self._archives)
+  }
+  function addListeners (archive, link) {
+    archive.on('download', function (data) {
+      self.emit('download', data, link)
+    })
+    archive.on('upload', function (data) {
+      self.emit('upload', data, link)
+    })
   }
 }
 
@@ -55,9 +64,8 @@ Drive.prototype._getArchives = function (cb) {
 }
 
 Drive.prototype.list = function (opts) {
-  var self = this
   var d = duplexify.obj()
-  self._getArchives(function (archive, archives) {
+  this._getArchives(function (archive, archives) {
     d.setReadable(merge(Object.keys(archives).map(function (link) {
       var r = archives[link].list(opts)
       return pump(r, through.obj(function (row, enc, next) {
@@ -69,24 +77,82 @@ Drive.prototype.list = function (opts) {
 }
 
 Drive.prototype.createFileWriteStream = function (entry) {
-  var self = this
   var d = duplexify()
-  self._getArchives(function (archive, archives) {
+  this._getArchives(function (archive, archives) {
     d.setWritable(archive.createFileWriteStream(entry))
   })
   return d
 }
 
+Drive.prototype.append = function (entry, cb) {
+  this._getArchives(function (archive, archives) {
+    archive.append(entry, cb)
+  })
+}
+
+Drive.prototype.get = function (entry, opts, cb) {
+  this._getArchives(function (archive, archives) {
+    if (!archives[entry.link]) {
+      cb(new Error('archive not found with link: ' + entry.link))
+    } else archives[entry.link].get(entry.index, opts, cb)
+  })
+}
+
+Drive.prototype.download = function (entry, opts, cb) {
+  this._getArchives(function (archive, archives) {
+    if (!archives[entry.link]) {
+      cb(new Error('archive not found with link: ' + entry.link))
+    } else archives[entry.link].download(entry, opts, cb)
+  })
+}
+
 Drive.prototype.createFileReadStream = function (entry) {
-  var self = this
   var d = duplexify()
-  self._getArchives(function (archive, archives) {
+  this._getArchives(function (archive, archives) {
     if (!archives[entry.link]) {
       d.emit('error', new Error('archive not found with link: ' + entry.link))
     } else d.setReadable(archives[entry.link].createFileReadStream(entry))
   })
   return d
 }
+
+Drive.prototype.createByteCursor = function (entry) {
+  var queue = [], cur = null, error = null
+  var cursor = {
+    seek: function (n, cb) {
+      if (error) {
+        cb(error)
+        error = null
+      } else if (cur) cur.seek(n, cb)
+      } else queue.push(['seek', n, cb])
+    },
+    next: function (cb) {
+      if (error) {
+        cb(error)
+        error = null
+      } else if (cur) cur.next(cb)
+      } else queue.push(['next',cb])
+    }
+  }
+  this._getArchives(function (archive, archives) {
+    if (!archives[entry.link]) {
+      error = new Error('archive not found with link: ' + entry.link)
+    } else cur = archives[entry.link].createByteCursor(entry)
+    for (var i = 0; i < queue.length; i++) {
+      if (error && queue[i][0] === 'next') {
+        queue[i][1](error)
+        error = null
+      } else if (cur) {
+        cur[queue[i][0]](queue[i][1], queue[i][2])
+      }
+    }
+    queue = []
+  })
+  return cursor
+}
+
+Drive.prototype.replicate = function () {}
+Drive.prototype.unreplicate = function () {}
 
 function notfound (err) {
   return err && (err.notFound || /^notfound/i.test(err))
