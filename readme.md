@@ -1,5 +1,11 @@
 # hyperdrive-multiwriter
 
+present a bundle of hyperdrive archives together as a multi-writer view
+
+This module create a writable archive on each database and creates readable
+archives for every other remote peer. The data from these archives are presented
+as a single view, even though there are many archives behind the scenes.
+
 # example
 
 ``` js
@@ -63,4 +69,76 @@ WHATEVER
 
 # api
 
+``` js
+var multidrive = require('hyperdrive-multiwriter')
+```
 
+## var mdrive = multidrive(opts)
+
+Create a multi-writer hyperdrive instance `mdrive` from `opts`:
+
+* `opts.db` - levelup database
+* `opts.drive` - hyperdrive instance
+
+`mdrive` has most of the same methods as a hyperdrive archive instance.
+
+## var r = mdrive.list(opts, cb)
+
+Return a readable stream `r` with entries from all the archives or collect all
+the entries as `cb(err, entries)`.
+
+Each entry has an `entry.link` hex string added to it to associate it with the
+proper archive..
+
+## var w = mdrive.createFileWriteStream(entry)
+
+Store data in the archive by writing to a writable stream `w`.
+
+`entry` should be an object or a string interpreted as `entry.name`.
+
+## var r = mdrive.createFileReadStream(entry)
+
+Create a readable stream for the contents of `entry`.
+
+`entry` should have an `entry.link` and `entry.name`.
+
+## mdrive.append(entry, cb)
+
+Append an entry into the writable archive.
+
+## mdrive.get(entry, opts, cb)
+
+Read an entry from the archive as `cb(err, entry)`.
+
+## mdrive.download(entry, opts, cb)
+
+Fully download a file/entry from the archive.
+
+## mdrive.close(cb)
+
+Close all resources.
+
+## var cursor = mdrive.createByteCursor(entry)
+
+Create a `cursor` that can seek and traverse `entry`.
+
+## var stream = mdrive.replicate()
+
+Return a duplex `stream` for replication that multiplexes the replication
+streams of all the underlying archives along with a coordinator channel to
+create the required readable archives on both sides of the connection.
+
+## mdrive.unreplicate(stream)
+
+Stop replicating a `stream`. If `stream` isn't given, stops all replication
+stream on `mdrive`.
+
+# install
+
+```
+npm install hyperdrive-multiwriter
+```
+
+# license
+
+BSD

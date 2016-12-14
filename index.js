@@ -278,6 +278,15 @@ Drive.prototype.unreplicate = function (stream) {
     })
   }
 }
+Drive.prototype.close = function (cb) {
+  var self = this
+  var keys = Object.keys(self._archives)
+  var pending = keys.length
+  keys.forEach(function (link) {
+    self._archives[link].close(done)
+  })
+  function done () { if (--pending === 0) cb() }
+}
 
 function notfound (err) {
   return err && (err.notFound || /^notfound/i.test(err))
