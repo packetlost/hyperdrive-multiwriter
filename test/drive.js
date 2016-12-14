@@ -5,7 +5,7 @@ var memdb = require('memdb')
 var concat = require('concat-stream')
 
 test('drive', function (t) {
-  t.plan(30)
+  t.plan(21)
   var mdrive0 = multidrive({ db: memdb(), drive: hyperdrive(memdb()) })
   var mdrive1 = multidrive({ db: memdb(), drive: hyperdrive(memdb()) })
   var mdrive2 = multidrive({ db: memdb(), drive: hyperdrive(memdb()) })
@@ -40,17 +40,21 @@ test('drive', function (t) {
     })
   }
   function sync () {
-    var opts = { live: true }
-    var r0 = mdrive0.replicate(opts)
-    var r1 = mdrive1.replicate(opts)
-    r0.pipe(r1).pipe(r0)
-
+    rep(mdrive0, mdrive1)
     setTimeout(function () {
-      var r2 = mdrive1.replicate(opts)
-      var r3 = mdrive2.replicate(opts)
-      r2.pipe(r3).pipe(r2)
+      rep(mdrive1, mdrive2)
+      setTimeout(function () {
+        rep(mdrive0, mdrive1)
+        setTimeout(function () {
+          check()
+        }, 100)
+      }, 100)
     }, 100)
-    setTimeout(check, 200)
+    function rep (a, b) {
+      var r0 = a.replicate()
+      var r1 = b.replicate()
+      r0.pipe(r1).pipe(r0)
+    }
   }
   function check () {
     var expected = [
@@ -80,17 +84,14 @@ test('drive', function (t) {
     function checkdocs (drive) {
       var e0 = { name: 'hello.txt', link: mdrive0.key }
       drive.createFileReadStream(e0).pipe(concat(function (buf) {
-        t.error(err)
         t.equal(buf.toString(), 'HI')
       }))
       var e1 = { name: 'cool.txt', link: mdrive1.key }
       drive.createFileReadStream(e1).pipe(concat(function (buf) {
-        t.error(err)
         t.equal(buf.toString(), 'COOL')
       }))
       var e2 = { name: 'hello.txt', link: mdrive2.key }
       drive.createFileReadStream(e2).pipe(concat(function (buf) {
-        t.error(err)
         t.equal(buf.toString(), 'WHATEVEr')
       }))
     }

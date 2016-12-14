@@ -26,6 +26,7 @@ function Drive (opts) {
   self._archive = null
   self.key = null
   self._ready = false
+  self._replicating = []
 
   self.db.get('links', { valueEncoding: 'json' }, function (err, links) {
     if (err && !notfound(err)) return self.emit('error', err)
@@ -34,12 +35,14 @@ function Drive (opts) {
       self.key = Buffer(links.self, 'hex')
       self._archive = self._drive.createArchive(self.key, { live: true })
       self._archives[links.self] = self._archive
+      self.emit('archive', self._archive, links.self)
       ready(links)
     } else {
       self._archive = self._drive.createArchive(null, { live: true })
       var key = self._archive.key.toString('hex')
       self.key = self._archive.key
       self._archives[key] = self._archive
+      self.emit('archive', self._archives[key], key)
       links.self = key
       links.links.push(key)
       self.db.put('links', links, { valueEncoding: 'json' }, function (err) {
@@ -54,6 +57,7 @@ function Drive (opts) {
       if (!self._archives[link]) {
         self._archives[link] = self._drive.createArchive(
           Buffer(link,'hex'), { live: true })
+        self.emit('archive', self._archives[link], link)
       }
       addListeners(self._archives[link], link)
     })
@@ -194,21 +198,28 @@ Drive.prototype.replicate = function (opts) {
       type: 'have-archives',
       links: Object.keys(archives)
     })+'\n')
-    var have = false
-    pump(meta, split(parse), through.obj(write), meta)
+    var onarchive = function (archive, link) {
+      meta.write(JSON.stringify({
+        type: 'have-archives',
+        links: [link]
+      })+'\n')
+    }
+    self.on('archive', onarchive)
+    pump(meta, split(parse), through.obj(write), meta, function () {
+      self.removeListener('archive', onarchive)
+    })
     function parse (str) {
       try { return JSON.parse(str) }
       catch (err) { this.emit('error', err) }
     }
     function write (row, enc, next) {
       if (!row) next()
-      else if (!have && row.type === 'have-archives') {
+      else if (row.type === 'have-archives') {
         if (!Array.isArray(row.links)) {
           return next(null, '{"error":"links array expected"}\n')
         } else if (!row.links.every(ishex)) {
           return next(null, '{"error":"links must be hex strings"}\n')
         }
-        have = true
         createArchives(row.links, next)
       } else next()
     }
@@ -238,8 +249,11 @@ Drive.prototype.replicate = function (opts) {
           if (!self._archives[link]) {
             self._archives[link] = self._drive.createArchive(
               Buffer(link,'hex'), { live: true })
+            self.emit('archive', self._archives[link], link)
           }
+          if (d._streams[link]) return
           var r = self._archives[link].replicate(extend(opts))
+          d._streams[link] = r
           r.once('error', cb)
           r.pipe(plex.createSharedStream(link)).pipe(r)
         })
@@ -248,9 +262,22 @@ Drive.prototype.replicate = function (opts) {
     d.setReadable(plex)
     d.setWritable(plex)
   })
+  d._streams = {}
+  self._replicating.push(d)
   return d
 }
-Drive.prototype.unreplicate = function () {} // TODO
+Drive.prototype.unreplicate = function (stream) {
+  var self = this
+  if (stream && stream._streams && typeof stream._streams === 'object') {
+    Object.keys(stream._streams).forEach(function (link) {
+      self._archives[link].unreplicate(stream._streams[link])
+    })
+  } else {
+    Object.keys(self._archives).forEach(function (link) {
+      self._archives[link].unreplicate()
+    })
+  }
+}
 
 function notfound (err) {
   return err && (err.notFound || /^notfound/i.test(err))
