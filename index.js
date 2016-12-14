@@ -1,4 +1,3 @@
-var hyperdrive = require('hyperdrive')
 var defaults = require('levelup-defaults')
 var inherits = require('inherits')
 var EventEmitter = require('events').EventEmitter
@@ -9,6 +8,7 @@ var split = require('split2')
 var pump = require('pump')
 var pumpify = require('pumpify')
 var multiplex = require('multiplex')
+var collect = require('collect-stream')
 var once = require('once')
 var extend = require('xtend')
 
@@ -24,20 +24,24 @@ function Drive (opts) {
   self._drive = opts.drive
   self._archives = {}
   self._archive = null
+  self.key = null
   self._ready = false
 
   self.db.get('links', { valueEncoding: 'json' }, function (err, links) {
     if (err && !notfound(err)) return self.emit('error', err)
-    if (!links) links = []
-    if (links[0]) {
-      self._archive = self._drive.createArchive(links[0], { live: true })
-      self._archives[links[0]] = self._archive
+    if (!links) links = { self: null, links: [] }
+    if (links.self) {
+      self.key = Buffer(links.self, 'hex')
+      self._archive = self._drive.createArchive(self.key, { live: true })
+      self._archives[links.self] = self._archive
       ready(links)
     } else {
       self._archive = self._drive.createArchive(null, { live: true })
       var key = self._archive.key.toString('hex')
+      self.key = self._archive.key
       self._archives[key] = self._archive
-      links.push(key)
+      links.self = key
+      links.links.push(key)
       self.db.put('links', links, { valueEncoding: 'json' }, function (err) {
         if (err) return self.emit('error', err)
         ready(links)
@@ -45,7 +49,8 @@ function Drive (opts) {
     }
   })
   function ready (links) {
-    links.forEach(function (link) {
+    var lns = links.links.concat(links.self)
+    lns.forEach(function (link) {
       if (!self._archives[link]) {
         self._archives[link] = self._drive.createArchive(
           Buffer(link,'hex'), { live: true })
@@ -71,8 +76,17 @@ Drive.prototype._getArchives = function (cb) {
   else this.once('_ready', cb)
 }
 
-Drive.prototype.list = function (opts) {
+Drive.prototype.list = function (opts, cb) {
+  if (typeof opts === 'function') {
+    cb = opts
+    opts = {}
+  }
+  if (!opts) opts = {}
   var d = duplexify.obj()
+  if (cb) {
+    opts = extend(opts, { live: false })
+    collect(d, cb)
+  }
   this._getArchives(function (archive, archives) {
     d.setReadable(merge(Object.keys(archives).map(function (link) {
       var r = archives[link].list(opts)
@@ -82,6 +96,7 @@ Drive.prototype.list = function (opts) {
       }))
     })))
   })
+  return d
 }
 
 Drive.prototype.createFileWriteStream = function (entry) {
@@ -100,30 +115,33 @@ Drive.prototype.append = function (entry, cb) {
 
 Drive.prototype.get = function (entry, opts, cb) {
   this._getArchives(function (archive, archives) {
-    if (!archives[entry.link]) {
-      cb(new Error('archive not found with link: ' + entry.link))
-    } else archives[entry.link].get(entry.index, opts, cb)
+    var key = linkfor(entry.link)
+    if (!archives[key]) {
+      cb(new Error('archive not found with link: ' + key))
+    } else archives[linkfor(entry.link)].get(entry.index, opts, cb)
   })
 }
 
 Drive.prototype.download = function (entry, opts, cb) {
   this._getArchives(function (archive, archives) {
-    if (!archives[entry.link]) {
-      cb(new Error('archive not found with link: ' + entry.link))
-    } else archives[entry.link].download(entry, opts, cb)
+    var key = linkfor(entry.link)
+    if (!archives[key]) {
+      cb(new Error('archive not found with link: ' + key))
+    } else archives[key].download(entry, opts, cb)
   })
 }
 
 Drive.prototype.createFileReadStream = function (entry) {
   var d = duplexify()
   this._getArchives(function (archive, archives) {
-    if (!archives[entry.link]) {
-      d.emit('error', new Error('archive not found with link: ' + entry.link))
+    var key = linkfor(entry.link)
+    if (!archives[key]) {
+      d.emit('error', new Error('archive not found with link: ' + key))
     } else {
       var e = extend(entry)
       delete e.blocks
       delete e.content
-      d.setReadable(archives[entry.link].createFileReadStream(e))
+      d.setReadable(archives[key].createFileReadStream(e))
     }
   })
   return d
@@ -148,9 +166,10 @@ Drive.prototype.createByteCursor = function (entry) {
     }
   }
   this._getArchives(function (archive, archives) {
-    if (!archives[entry.link]) {
-      error = new Error('archive not found with link: ' + entry.link)
-    } else cur = archives[entry.link].createByteCursor(entry)
+    var key = linkfor(entry.link)
+    if (!archives[key]) {
+      error = new Error('archive not found with link: ' + key)
+    } else cur = archives[key].createByteCursor(entry)
     for (var i = 0; i < queue.length; i++) {
       if (error && queue[i][0] === 'next') {
         queue[i][1](error)
@@ -165,6 +184,7 @@ Drive.prototype.createByteCursor = function (entry) {
 }
 
 Drive.prototype.replicate = function (opts) {
+  if (!opts) opts = {}
   var self = this
   var d = duplexify()
   self._getArchives(function (archive, archives) {
@@ -194,16 +214,19 @@ Drive.prototype.replicate = function (opts) {
     }
     function createArchives (links, cb) {
       cb = once(cb)
-      var nlinks = Object.keys(archives).sort()
+      var nlinks = {
+        self: archive.key.toString('hex'),
+        links: Object.keys(archives).sort()
+      }
       var added = 0
       links.forEach(function (link) {
         if (!self._archives[link]) {
-          nlinks.push(link)
+          nlinks.links.push(link)
           added++
         }
       })
       if (added > 0) {
-        nlinks.sort()
+        nlinks.links.sort()
         self.db.put('links', nlinks, { valueEncoding: 'json' }, function (err) {
           if (err) return cb(err)
           else ready(nlinks)
@@ -211,12 +234,12 @@ Drive.prototype.replicate = function (opts) {
       } else ready(nlinks)
 
       function ready (links) {
-        links.forEach(function (link) {
+        links.links.forEach(function (link) {
           if (!self._archives[link]) {
             self._archives[link] = self._drive.createArchive(
               Buffer(link,'hex'), { live: true })
           }
-          var r = self._archives[link].replicate(opts)
+          var r = self._archives[link].replicate(extend(opts))
           r.once('error', cb)
           r.pipe(plex.createSharedStream(link)).pipe(r)
         })
@@ -234,4 +257,7 @@ function notfound (err) {
 }
 function ishex (str) {
   return typeof str === 'string' && /^[A-Fa-f0-9]+$/.test(str)
+}
+function linkfor (x) {
+  return typeof x === 'string' ? x : x.toString('hex')
 }
