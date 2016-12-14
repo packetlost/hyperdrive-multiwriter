@@ -21,5 +21,6 @@ if (process.argv[3] === 'list') {
 } else if (process.argv[3] === 'write') {
   process.stdin.pipe(mdrive.createFileWriteStream(process.argv[4]))
 } else if (process.argv[3] === 'sync') {
-  process.stdin.pipe(mdrive.replicate()).pipe(process.stdout)
+  var r = mdrive.replicate()
+  process.stdin.pipe(r).pipe(process.stdout)
 }
